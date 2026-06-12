@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <title>运动数据管理系统</title>
+    <style>
+        :root {
+            --bg: #b8c6db;
+            --orb-1: rgba(100, 140, 255, 0.7); --orb-2: rgba(160, 100, 255, 0.6); --orb-3: rgba(80, 200, 255, 0.5);
+            --glass: rgba(255,255,255,0.12); --glass-edge: rgba(255,255,255,0.35); --glass-inner: rgba(255,255,255,0.08);
+            --card-bg: rgba(255,255,255,0.18);
+            --nav-bg: rgba(255,255,255,0.2); --nav-active: rgba(255,255,255,0.5);
+            --input-bg: rgba(255,255,255,0.3); --input-focus: rgba(255,255,255,0.6); --input-border: rgba(255,255,255,0.3); --input-ph: rgba(0,0,0,0.25);
+            --table-bg: rgba(255,255,255,0.12); --table-head: rgba(255,255,255,0.1); --table-hover: rgba(255,255,255,0.2); --table-div: rgba(255,255,255,0.15);
+            --ann-bg: rgba(255,255,255,0.12);
+            --accent: #007AFF; --accent-glow: rgba(0,122,255,0.35); --accent-sub: rgba(0,122,255,0.08);
+            --t1: #1a1a2e; --t2: rgba(0,0,0,0.45); --t3: rgba(0,0,0,0.25);
+            --ok: #30D158; --err: #FF453A; --btn: linear-gradient(135deg, #007AFF, #5856D6);
+            --shadow: 0 8px 40px rgba(0,0,0,0.1);
+            --ov-bg: rgba(0,0,0,0.35); --panel-bg: rgba(255,255,255,0.55); --panel-border: rgba(255,255,255,0.6); --panel-shadow: 0 8px 40px rgba(0,0,0,0.12); --panel-inner: rgba(255,255,255,0.5);
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #08080f;
+                --orb-1: rgba(60, 40, 180, 0.5); --orb-2: rgba(120, 40, 220, 0.4); --orb-3: rgba(30, 100, 200, 0.35);
+                --glass: rgba(255,255,255,0.04); --glass-edge: rgba(255,255,255,0.06); --glass-inner: rgba(255,255,255,0.02);
+                --card-bg: rgba(255,255,255,0.03);
+                --nav-bg: rgba(255,255,255,0.04); --nav-active: rgba(255,255,255,0.08);
+                --input-bg: rgba(255,255,255,0.05); --input-focus: rgba(255,255,255,0.08); --input-border: rgba(255,255,255,0.06); --input-ph: rgba(255,255,255,0.2);
+                --table-bg: rgba(255,255,255,0.02); --table-head: rgba(255,255,255,0.03); --table-hover: rgba(255,255,255,0.05); --table-div: rgba(255,255,255,0.04);
+                --ann-bg: rgba(255,255,255,0.03);
+                --accent: #4A9AFF; --accent-glow: rgba(74,154,255,0.3); --accent-sub: rgba(74,154,255,0.1);
+                --t1: #f0f0f5; --t2: rgba(255,255,255,0.45); --t3: rgba(255,255,255,0.2);
+                --ok: #30D158; --err: #FF6961; --btn: linear-gradient(135deg, #0A84FF, #7C3AED);
+                --shadow: 0 8px 40px rgba(0,0,0,0.5);
+                --ov-bg: rgba(0,0,0,0.6); --panel-bg: rgba(30,30,40,0.65); --panel-border: rgba(255,255,255,0.08); --panel-shadow: 0 8px 40px rgba(0,0,0,0.5); --panel-inner: rgba(255,255,255,0.02);
+            }
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif; min-height: 100vh; background: var(--bg); padding: 20px; overflow-x: hidden; color: var(--t1); }
+
+        /* ===== 光源 ===== */
+        .orb { position: fixed; border-radius: 50%; pointer-events: none; will-change: transform; z-index: 0; }
+        .orb-1 { width: 320px; height: 320px; background: var(--orb-1); filter: blur(50px); top: -60px; right: -60px; transition: filter 0.3s ease-out, opacity 0.3s ease-out; }
+        .orb-2 { width: 260px; height: 260px; background: var(--orb-2); filter: blur(60px); top: 140px; right: 40px; transition: filter 0.3s ease-out, opacity 0.3s ease-out; }
+        .orb-3 { width: 220px; height: 220px; background: var(--orb-3); filter: blur(45px); bottom: -50px; left: -30px; transition: filter 0.3s ease-out, opacity 0.3s ease-out; }
+        .orb.bump { filter: blur(25px) brightness(1.6); opacity: 0.8; }
+        @keyframes bumpGlow {
+            0% { filter: blur(25px) brightness(1.8); opacity: 0.9; }
+            100% { filter: blur(50px) brightness(1); opacity: var(--orb-opacity, 0.5); }
+        }
+
+        /* ===== 容器 ===== */
+        .wrap { position: relative; z-index: 1; max-width: 520px; margin: 40px auto; }
+        .glass { background: var(--glass); backdrop-filter: blur(40px) saturate(1.4); -webkit-backdrop-filter: blur(40px) saturate(1.4); border: 1px solid var(--glass-edge); border-radius: 24px; box-shadow: var(--shadow), inset 0 0.5px 0 var(--glass-inner); overflow: hidden; }
+        .card { padding: 36px 28px; background: transparent; }
+
+        /* ===== 开场动画 ===== */
+        body { animation: bgIn 0.5s ease-out both; }
+        @keyframes bgIn { from { opacity: 0; } to { opacity: 1; } }
+        .glass { opacity: 0; animation: cardIn 0.5s ease-out 0.2s forwards; }
+        @keyframes cardIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* ===== 公告按钮（左上角） ===== */
+        .ann-btn {
+            position: absolute; top: 16px; left: 16px;
+            width: 36px; height: 36px;
+            border: 1px solid var(--glass-edge); border-radius: 10px;
+            background: var(--ann-bg); backdrop-filter: blur(16px);
+            cursor: pointer; z-index: 10;
+            display: flex; align-items: center; justify-content: center;
+            opacity: 0; transform: scale(0.8);
+            transition: opacity 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .ann-btn:hover { transform: scale(1.1); background: var(--nav-active); }
+        .ann-btn svg { width: 20px; height: 20px; fill: var(--t2); transition: fill 0.3s; }
+        .ann-btn:hover svg { fill: var(--accent); }
+        .ann-btn.in { opacity: 1; transform: scale(1); }
+        .ann-btn.has-new { animation: breathe 2.4s ease-in-out infinite; }
+        @keyframes breathe {
+            0%, 100% { background: rgba(255, 200, 0, 0.06); box-shadow: 0 0 8px rgba(255, 200, 0, 0.08); }
+            50% { background: rgba(255, 200, 0, 0.45); box-shadow: 0 0 24px rgba(255, 200, 0, 0.35); }
+        }
+
+        /* ===== 公告展开面板 ===== */
+        .ann-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 100; display: flex; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0); backdrop-filter: blur(0px);
+            pointer-events: none;
+            transition: all 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .ann-overlay.open {
+            background: var(--ov-bg); backdrop-filter: blur(40px) saturate(1.2); -webkit-backdrop-filter: blur(40px) saturate(1.2);
+            pointer-events: auto;
+        }
+        .ann-panel {
+            width: 90%; max-width: 480px; max-height: 70vh;
+            background: var(--panel-bg); backdrop-filter: blur(30px) saturate(1.4); -webkit-backdrop-filter: blur(30px) saturate(1.4);
+            border: 1px solid var(--panel-border); border-radius: 24px;
+            box-shadow: var(--panel-shadow), inset 0 0.5px 0 var(--panel-inner);
+            padding: 32px 28px; overflow-y: auto;
+            opacity: 0; transform: translateY(30px) scale(0.92);
+            transition: all 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .ann-overlay.open .ann-panel { opacity: 1; transform: translateY(0) scale(1); }
+        .ann-panel h3 { font-size: 13px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 14px; }
+        .ann-panel .ann-body { font-size: 15px; color: var(--t1); line-height: 1.8; white-space: pre-wrap; }
+        .ann-panel .ann-ver { font-size: 12px; color: var(--t3); margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--glass-edge); }
+
+        /* ===== 编号显示 ===== */
+        .sub { text-align: center; font-size: 13px; color: var(--t2); margin-bottom: 28px; }
+
+        /* ===== 导航 ===== */
+        .nav { display: flex; gap: 4px; padding: 4px; margin-bottom: 28px; border-radius: 14px; background: var(--nav-bg); }
+        .nb { flex: 1; padding: 10px 0; border: none; background: none; font-size: 14px; font-weight: 600; font-family: inherit; color: var(--t2); border-radius: 11px; cursor: pointer; transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .nb.on { color: var(--accent); background: var(--nav-active); }
+        .nb:hover:not(.on) { color: var(--t1); }
+
+        /* ===== Tab ===== */
+        .tab { display: none; animation: fadeSlide .7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+        .tab.on { display: block; }
+        @keyframes fadeSlide { 0% { opacity: 0; transform: translateY(20px) scale(0.98); } 60% { opacity: 1; transform: translateY(-4px) scale(1.005); } 80% { transform: translateY(2px) scale(0.998); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+
+        /* ===== 表单 ===== */
+        .fg { margin-bottom: 18px; }
+        label { display: block; font-size: 12px; font-weight: 600; color: var(--t2); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+        input { width: 100%; padding: 14px 16px; border: 1px solid var(--input-border); border-radius: 12px; font-size: 16px; font-family: inherit; color: var(--t1); background: var(--input-bg); outline: none; transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-sub); background: var(--input-focus); }
+        input::placeholder { color: var(--input-ph); }
+        .hint { font-size: 11px; color: var(--t3); margin-top: 4px; }
+
+        /* ===== 按钮 ===== */
+        .btn { width: 100%; padding: 15px; border: none; border-radius: 14px; font-size: 16px; font-weight: 600; font-family: inherit; color: #fff; background: var(--btn); cursor: pointer; transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); margin-top: 6px; }
+        .btn:hover { transform: scale(1.02); box-shadow: 0 4px 24px var(--accent-glow); }
+        .btn:active { transform: scale(0.96); transition-duration: 0.15s; }
+        .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+        .btn-s { padding: 7px 18px; border: none; border-radius: 10px; font-size: 13px; font-weight: 600; font-family: inherit; color: #fff; background: var(--btn); cursor: pointer; transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .btn-s:hover { transform: scale(1.06); }
+        .btn-s:disabled { opacity: 0.35; transform: none; }
+
+        /* ===== 消息 ===== */
+        .msg { text-align: center; font-size: 14px; font-weight: 500; min-height: 20px; margin-top: 14px; }
+        .msg.ok { color: var(--ok); } .msg.err { color: var(--err); }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(48,209,88,0.35); } 70% { box-shadow: 0 0 0 14px transparent; } }
+        .pulse { animation: pulse 0.6s; }
+
+        /* ===== 表格 ===== */
+        table { width: 100%; border-collapse: separate; border-spacing: 0; overflow: hidden; border-radius: 14px; background: var(--table-bg); }
+        th { padding: 12px 16px; font-size: 12px; font-weight: 600; color: var(--t2); text-transform: uppercase; letter-spacing: 0.5px; text-align: left; background: var(--table-head); }
+        td { padding: 14px 16px; font-size: 14px; color: var(--t1); border-top: 1px solid var(--table-div); }
+        tr { transition: background 0.5s cubic-bezier(0.34,1.56,0.64,1); }
+        tbody tr:hover { background: var(--table-hover); }
+        .empty { text-align: center; padding: 40px; color: var(--t3); font-size: 14px; }
+        @keyframes shimmer { 0% { background-position: -200px 0; } 100% { background-position: 200px 0; } }
+        .sk { height: 14px; border-radius: 7px; background: linear-gradient(90deg, var(--table-div) 25%, var(--table-hover) 50%, var(--table-div) 75%); background-size: 400px 100%; animation: shimmer 1.5s infinite; }
+        @keyframes ri { 0% { opacity: 0; transform: translateY(12px) scale(0.97); } 60% { opacity: 1; transform: translateY(-3px) scale(1.01); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+    </style>
+</head>
+<body>
+    <div class="orb orb-1" id="o1"></div>
+    <div class="orb orb-2" id="o2"></div>
+    <div class="orb orb-3" id="o3"></div>
+
+    <!-- 公告展开面板 -->
+    <div class="ann-overlay" id="annOverlay" onclick="if(event.target===this)closeAnn()">
+        <div class="ann-panel">
+            <h3>公告</h3>
+            <div class="ann-body" id="annBody"></div>
+            <div class="ann-ver" id="annVer"></div>
+        </div>
+    </div>
+
+    <div class="wrap">
+        <div class="glass" style="position:relative">
+            <!-- 公告按钮 -->
+            <button class="ann-btn" id="annBtn" onclick="toggleAnn()" title="公告" style="display:none">
+                <svg viewBox="0 0 24 24"><path d="M4 4h16v12H5.17L4 17.17V4m0-2a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H4zm2 10h12v2H6v-2zm0-3h12v2H6V9zm0-3h12v2H6V6z"/></svg>
+            </button>
+
+            <div class="card">
+                <p class="sub" id="uidDisplay" style="display:none;font-size:18px;font-weight:600;color:var(--t1)"></p>
+
+                <div class="nav">
+                    <button class="nb on" onclick="sw('form',this)">数据填写</button>
+                    <button class="nb" onclick="sw('dl',this)">数据下载</button>
+                </div>
+
+                <div class="tabs">
+                    <div class="tab on" id="tab-form">
+                        <form id="fm">
+                            <div class="fg"><label>个人编号</label><input id="user_id" placeholder="例如：021" maxlength="3" required><div class="hint">三位数字</div></div>
+                            <div class="fg"><label>运动日期</label><input id="date" placeholder="例如：20260414" maxlength="8" required><div class="hint">YYYYMMDD</div></div>
+                            <div class="fg"><label>开始时间</label><input id="start_time" placeholder="例如：1315" maxlength="4" required><div class="hint">HHMM</div></div>
+                            <div class="fg"><label>运动时长</label><input id="duration" placeholder="例如：2103" maxlength="4" required><div class="hint">MMSS</div></div>
+                            <button class="btn" id="qsb" type="button" style="background:linear-gradient(135deg,#34C759,#30B850);margin-bottom:10px">快速提交</button>
+                            <button class="btn" id="sb" type="submit">提交数据</button>
+                        </form>
+                        <div class="msg" id="ms"></div>
+                    </div>
+
+                    <div class="tab" id="tab-dl">
+                        <table>
+                            <thead><tr><th>#</th><th>编号</th><th>日期</th><th>时间</th><th>操作</th></tr></thead>
+                            <tbody id="tb"><tr><td colspan="5" class="empty"><div class="sk" style="width:60%;margin:0 auto"></div></td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // === 公告 ===
+        let annOpen = false;
+        function toggleAnn() {
+            annOpen = !annOpen;
+            document.getElementById('annOverlay').classList.toggle('open', annOpen);
+        }
+        function closeAnn() { annOpen = false; document.getElementById('annOverlay').classList.remove('open'); }
+
+        fetch('/api/announcement').then(r => r.json()).then(d => {
+            if (d.content && d.content.trim()) {
+                document.getElementById('annBody').textContent = d.content;
+                document.getElementById('annVer').textContent = d.version || '';
+                const btn = document.getElementById('annBtn');
+                btn.style.display = '';
+
+                // 版本号对比：无cookie或版本不同都闪烁
+                const saved = d.version ? getCookie('ann_ver') : null;
+                const isNew = d.version && (!saved || saved !== d.version);
+
+                // 入场
+                btn.classList.add('in');
+
+                // 闪烁：等入场动画结束后再加
+                if (isNew) {
+                    setTimeout(() => btn.classList.add('has-new'), 600);
+                }
+
+                // 点开公告时记录版本，停止闪烁
+                if (d.version) {
+                    const stopFlash = () => {
+                        setCookie('ann_ver', d.version, 365);
+                        btn.classList.remove('has-new');
+                        btn.removeEventListener('click', stopFlash);
+                    };
+                    btn.addEventListener('click', stopFlash);
+                }
+            }
+        }).catch(() => {});
+
+        // === Tab 切换 ===
+        let cur = 'form', dlOk = false;
+        function sw(n, b) {
+            if (n === cur) return;
+            const old = document.getElementById('tab-' + cur);
+            const nxt = document.getElementById('tab-' + n);
+            old.classList.remove('on');
+            setTimeout(() => { nxt.classList.add('on'); cur = n; }, 150);
+            document.querySelectorAll('.nb').forEach(x => x.classList.remove('on'));
+            b.classList.add('on');
+            if (n === 'dl' && !dlOk) { dlOk = true; loadList(); }
+            if (n === 'form') { sb.disabled = false; sb.textContent = '提交数据'; qsb.disabled = false; qsb.textContent = '快速提交'; }
+        }
+
+        // === 表单 ===
+        const fm = document.getElementById('fm'), ms = document.getElementById('ms'), sb = document.getElementById('sb');
+        let lastSubmitId = null;
+        const RV = { user_id: /^\d{3}$/, date: /^\d{8}$/, start_time: /^\d{4}$/, duration: /^\d{4}$/ };
+        const RT = { user_id: '三位数字', date: '8位数字', start_time: '4位数字', duration: '4位数字' };
+        function sm(t, c) { ms.textContent = t; ms.className = 'msg ' + c; if (c === 'ok') setTimeout(() => ms.textContent = '', 3000); }
+
+        fm.addEventListener('submit', async e => {
+            e.preventDefault(); ms.textContent = '';
+            const d = {};
+            for (const k of Object.keys(RV)) {
+                const v = document.getElementById(k).value.trim();
+                if (!RV[k].test(v)) { sm(RT[k], 'err'); return; }
+                d[k] = v;
+            }
+            sb.disabled = true; sb.textContent = '提交中...';
+            let ok = false;
+            try {
+                const r = await fetch('/api/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
+                const j = await r.json();
+                if (j.success) { ok = true; setCookie('uid', d.user_id, 365); document.getElementById('uidDisplay').textContent = '编号：' + d.user_id; document.getElementById('uidDisplay').style.display = ''; lastSubmitId = j.id; sm('提交成功！', 'ok'); fm.classList.add('pulse'); setTimeout(() => fm.classList.remove('pulse'), 600); fm.reset(); dlOk = false; setTimeout(() => sw('dl', document.querySelectorAll('.nb')[1]), 800); }
+                else sm(j.error || '失败', 'err');
+            } catch { sm('网络错误', 'err'); }
+            finally { if (!ok) { sb.disabled = false; sb.textContent = '提交数据'; } }
+        });
+
+        // === 快速提交 ===
+        const qsb = document.getElementById('qsb');
+        qsb.addEventListener('click', async () => {
+            qsb.disabled = true; qsb.textContent = '提交中...';
+            const uid = getCookie('uid') || '666';
+            const now = new Date(), utc = now.getTime() + now.getTimezoneOffset() * 60000, bj = new Date(utc + 8 * 3600000);
+            const h = bj.getHours();
+            let dateStr, timeStr;
+            if (h >= 15) { dateStr = fmtDate(bj); timeStr = fmtHM(14 * 60 + 30 + Math.floor(Math.random() * 120) - 60); }
+            else { dateStr = fmtDate(new Date(bj.getTime() - 86400000)); timeStr = fmtHM(22 * 60 + 30 + Math.floor(Math.random() * 120) - 60); }
+            const durSec = 19 * 60 + 10 + Math.floor(Math.random() * (103 - 10 + 1));
+            const durMM = Math.floor(durSec / 60), durSS = durSec % 60;
+            const durStr = String(durMM).padStart(2, '0') + String(durSS).padStart(2, '0');
+            const d = { user_id: uid, date: dateStr, start_time: timeStr, duration: durStr };
+            let ok = false;
+            try {
+                const r = await fetch('/api/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
+                const j = await r.json();
+                if (j.success) { ok = true; setCookie('uid', uid, 365); document.getElementById('uidDisplay').textContent = '编号：' + uid; document.getElementById('uidDisplay').style.display = ''; lastSubmitId = j.id; sm(`快速提交成功！${uid} ${dateStr} ${timeStr} ${durStr}`, 'ok'); dlOk = false; setTimeout(() => sw('dl', document.querySelectorAll('.nb')[1]), 800); }
+                else sm(j.error || '失败', 'err');
+            } catch { sm('网络错误', 'err'); }
+            finally { if (!ok) { qsb.disabled = false; qsb.textContent = '快速提交'; } }
+        });
+
+        function fmtDate(d) { return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0'); }
+        function fmtHM(m) { return String(Math.floor(m / 60)).padStart(2, '0') + String(m % 60).padStart(2, '0'); }
+        function getCookie(n) { const m = document.cookie.match(new RegExp('(?:^|; )' + n + '=([^;]*)')); return m ? decodeURIComponent(m[1]) : null; }
+        function setCookie(n, v, days) { const d = new Date(); d.setTime(d.getTime() + days * 86400000); document.cookie = n + '=' + encodeURIComponent(v) + ';expires=' + d.toUTCString() + ';path=/'; }
+
+        // === 页面加载 ===
+        (function() { const saved = getCookie('uid'); if (saved) { document.getElementById('user_id').value = saved; document.getElementById('uidDisplay').textContent = '编号：' + saved; document.getElementById('uidDisplay').style.display = ''; } })();
+
+        // === 列表 ===
+        const tb = document.getElementById('tb');
+        async function loadList() {
+            tb.innerHTML = '<tr><td colspan="5" class="empty"><div class="sk" style="width:60%;margin:0 auto"></div></td></tr>';
+            try {
+                const r = await fetch('/api/activities'), l = await r.json();
+                if (!l.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">暂无数据</td></tr>'; return; }
+                tb.innerHTML = l.map((a, i) => {
+                    const hl = a.id === lastSubmitId, bg = hl ? 'background:var(--accent-sub);' : '';
+                    return `<tr style="animation:ri .7s ${i*.08}s cubic-bezier(0.34,1.56,0.64,1) both;${bg}"><td style="color:var(--t3)">${i+1}</td><td style="font-weight:600">${a.user_id}</td><td>${a.date}</td><td>${a.start_time}</td><td><button class="btn-s" onclick="dl(this,'${a.user_id}','${a.date}','${a.start_time}','${a.duration}')">下载</button></td></tr>`;
+                }).join('');
+                lastSubmitId = null;
+            } catch { tb.innerHTML = '<tr><td colspan="5" class="empty">加载失败</td></tr>'; }
+        }
+        async function dl(b, u, d, s, du) {
+            b.disabled = true; b.textContent = '...';
+            try {
+                const r = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: u, date: d, start_time: s, duration: du }) });
+                if (!r.ok) throw new Error();
+                const blob = await r.blob(), url = URL.createObjectURL(blob), a = document.createElement('a');
+                a.href = url; a.download = u + '.fit'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+            } catch { alert('下载失败'); }
+            finally { b.disabled = false; b.textContent = '下载'; }
+        }
+
+        // === 光源随机漫步 ===
+        const o1 = document.getElementById('o1'), o2 = document.getElementById('o2'), o3 = document.getElementById('o3');
+        const orbs = [
+            { el: o1, x: 0, y: 0, vx: 0, vy: 0, range: 280, blur: 50 },
+            { el: o2, x: 0, y: 0, vx: 0, vy: 0, range: 220, blur: 60 },
+            { el: o3, x: 0, y: 0, vx: 0, vy: 0, range: 180, blur: 45 },
+        ];
+
+        function wander() {
+            for (const o of orbs) {
+                o.vx += (Math.random() - 0.5) * 0.4;
+                o.vy += (Math.random() - 0.5) * 0.4;
+                o.vx *= 0.97;
+                o.vy *= 0.97;
+                o.vx = Math.max(-3, Math.min(3, o.vx));
+                o.vy = Math.max(-3, Math.min(3, o.vy));
+                o.x += o.vx;
+                o.y += o.vy;
+
+                // 边界回弹 + 光晕
+                let bumped = false;
+                if (Math.abs(o.x) > o.range) { o.vx *= -0.8; bumped = true; }
+                if (Math.abs(o.y) > o.range) { o.vy *= -0.8; bumped = true; }
+                o.x = Math.max(-o.range, Math.min(o.range, o.x));
+                o.y = Math.max(-o.range, Math.min(o.range, o.y));
+
+                if (bumped) {
+                    o.el.style.filter = `blur(${o.blur * 0.5}px) brightness(1.6)`;
+                    o.el.style.opacity = '0.85';
+                    setTimeout(() => {
+                        o.el.style.filter = `blur(${o.blur}px)`;
+                        o.el.style.opacity = '';
+                    }, 300);
+                }
+
+                o.el.style.transform = `translate(${o.x}px,${o.y}px)`;
+            }
+            requestAnimationFrame(wander);
+        }
+        wander();
+    </script>
+</body>
+</html>
