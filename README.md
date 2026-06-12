@@ -4,7 +4,7 @@
 
 一个轻量级 Web 应用，通过浏览器填写运动参数后自动生成包含真实 GPS 轨迹的 `.fit` 文件，兼容 Keep、Garmin Connect 等主流运动 APP 导入。
 
-由https://github.com/Jnix-memory/SchoolRunV1用AI改进而来。
+由https://github.com/Jnix-memory/SchoolRunV1 用AI改进而来。
 
 ## 功能特性
 
