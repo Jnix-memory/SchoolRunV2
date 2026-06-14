@@ -51,7 +51,7 @@ def generate_fit(user_id, date, start_time, duration, output_path=None):
         minute = int(start_time[2:4])
         total_duration = int(duration[:2]) * 60 + int(duration[2:4])
 
-        total_distance = random.uniform(2.95, 3.20) * 1000
+        total_distance = random.uniform(3.03, 3.13) * 1000
         start_ts = int(datetime(year, month, day, hour, minute, 0).timestamp() * 1000)
         end_ts = start_ts + total_duration * 1000
         num_points = len(TEMPLATE_POINTS)
