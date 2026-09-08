@@ -46,6 +46,10 @@ JITTER_AMP_M = 10.0        # 横向波动峰值 ≤10m（低频平滑 + 峰值�
 TREND_DECAY = 0.2          # 整体递减：末端速度 = 首端 × 80%
 PER_KM_AMP = 0.05          # 每公里随机幅度 ±5%
 PACE_SMOOTH_M = 200.0      # 配速平滑相关长度
+# 3km 档（<4km）：速度起伏更明显（更大的整体递减 + 每公里随机 + 更短平滑）
+TREND_DECAY_3K = 0.28      # 整体递减 28%：首尾速度差更明显
+PER_KM_AMP_3K = 0.18       # 每公里随机幅度 ±18%
+PACE_SMOOTH_M_3K = 150.0   # 平滑 150m：段间起伏更明显
 
 # ---- 慢跑动力学人设（报告 FEAT-07 / final_constants）----
 AVG_SPM = 158.0            # 平均步频（步/分）
@@ -113,13 +117,18 @@ def generate_fit(user_id, date, start_time, duration, output_path=None, distance
         dur_ms = int(total_duration * 1000)
 
         # ---- 3) 速度曲线：时间-距离映射（总时长精确保持）----
+        # 3km 档用更大的起伏参数，让配速变化更明显；5km 及以上保持默认
+        if distance_m < 4000.0:
+            trend_decay, amp, smooth_m = TREND_DECAY_3K, PER_KM_AMP_3K, PACE_SMOOTH_M_3K
+        else:
+            trend_decay, amp, smooth_m = TREND_DECAY, PER_KM_AMP, PACE_SMOOTH_M
         pace_dg, pace_qg = ct.build_pace_curve(
-            distance_m, amp=PER_KM_AMP, smooth_m=PACE_SMOOTH_M,
-            trend_decay=TREND_DECAY, duration_s=total_duration)
+            distance_m, amp=amp, smooth_m=smooth_m,
+            trend_decay=trend_decay, duration_s=total_duration)
         q_at = lambda d: ct.pace_time_fraction(pace_dg, pace_qg, d)
 
         # 逐点瞬时速度(m/s)：由距离-时间曲线中心差分（±3 点窗口）推得，带物理上限
-        head_v = distance_m / total_duration / (1.0 - TREND_DECAY / 2.0)  # 首端理论速度
+        head_v = distance_m / total_duration / (1.0 - trend_decay / 2.0)  # 首端理论速度
         v_cap = head_v * 1.15
         spd = []
         for i in range(n_pts):
