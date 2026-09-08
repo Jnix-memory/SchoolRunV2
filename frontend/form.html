@@ -286,14 +286,16 @@
         fm.addEventListener('submit', async e => {
             e.preventDefault(); ms.textContent = '';
             const btn = (e.submitter && (e.submitter.id === 'sb' || e.submitter.id === 'sb5')) ? e.submitter : sb;
-            const is5 = btn.id === 'sb5';  // 左=5km+随机量；右(默认/回车)=原逻辑(3km随机)
+            const is5 = btn.id === 'sb5';  // 左=5km档；右=3km档；两档距离均为纯随机数
             const d = {};
             for (const k of Object.keys(RV)) {
                 const v = document.getElementById(k).value.trim();
                 if (!RV[k].test(v)) { sm(RT[k], 'err'); return; }
                 d[k] = v;
             }
-            if (is5) d.distance = (5 + Math.random() * 0.29).toFixed(2);  // 5.00~5.29 km 随机
+            // 两档提交距离均为纯随机：基准 5 或 3，随机偏移 -0.09 ~ +0.4 km
+            const distBase = is5 ? 5 : 3;
+            d.distance = (distBase + Math.random() * 0.49 - 0.09).toFixed(2);
             btn.disabled = true; setBtnLabel(btn, '提交中...');
             let ok = false;
             try {
