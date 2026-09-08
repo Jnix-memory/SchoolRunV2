@@ -321,7 +321,10 @@
             let dateStr, timeStr;
             if (h >= 15) { dateStr = fmtDate(bj); timeStr = fmtHM(14 * 60 + 30 + Math.floor(Math.random() * 120) - 60); }
             else { dateStr = fmtDate(new Date(bj.getTime() - 86400000)); timeStr = fmtHM(22 * 60 + 30 + Math.floor(Math.random() * 120) - 60); }
-            const durSec = 19 * 60 + 10 + Math.floor(Math.random() * (103 - 10 + 1));
+            // 时长：5km档=26:00~35:00 慢跑随机；3km档=原逻辑 19分10秒~20分53秒 随机
+            const durSec = is5
+                ? 26 * 60 + Math.floor(Math.random() * (9 * 60 + 1))
+                : 19 * 60 + 10 + Math.floor(Math.random() * (103 - 10 + 1));
             const durMM = Math.floor(durSec / 60), durSS = durSec % 60;
             const durStr = String(durMM).padStart(2, '0') + String(durSS).padStart(2, '0');
             // 距离与提交数据一致：基准5或3，随机偏移 -0.09 ~ +0.4
