@@ -137,6 +137,11 @@
         .btn:hover { transform: scale(1.02); box-shadow: 0 4px 24px var(--accent-glow); }
         .btn:active { transform: scale(0.96); transition-duration: 0.15s; }
         .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+        /* 提交数据 5km/3km 左右拆分 */
+        .btnrow { display: flex; gap: 10px; margin-top: 6px; }
+        .btnrow .btn { margin-top: 0; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 10px 8px; line-height: 1.25; }
+        .b-t { display: block; font-size: 16px; font-weight: 600; }
+        .b-s { display: block; font-size: 11px; font-weight: 500; opacity: 0.92; letter-spacing: 0.3px; }
         .btn-s { padding: 7px 18px; border: none; border-radius: 10px; font-size: 13px; font-weight: 600; font-family: inherit; color: #fff; background: var(--btn); cursor: pointer; transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
         .btn-s:hover { transform: scale(1.06); }
         .btn-s:disabled { opacity: 0.35; transform: none; }
@@ -196,15 +201,18 @@
                             <div class="fg"><label>开始时间</label><input id="start_time" placeholder="例如：1315" maxlength="4" required><div class="hint">HHMM</div></div>
                             <div class="fg"><label>运动时长</label><input id="duration" placeholder="例如：2103" maxlength="4" required><div class="hint">MMSS</div></div>
                             <button class="btn" id="qsb" type="button" style="background:linear-gradient(135deg,#34C759,#30B850);margin-bottom:10px">快速提交</button>
-                            <button class="btn" id="sb" type="submit">提交数据</button>
+                            <div class="btnrow">
+                                <button class="btn" id="sb5" type="submit"><span class="b-t">提交数据</span><span class="b-s">5km</span></button>
+                                <button class="btn" id="sb" type="submit"><span class="b-t">提交数据</span><span class="b-s">3km</span></button>
+                            </div>
                         </form>
                         <div class="msg" id="ms"></div>
                     </div>
 
                     <div class="tab" id="tab-dl">
                         <table>
-                            <thead><tr><th>#</th><th>编号</th><th>日期</th><th>时间</th><th>操作</th></tr></thead>
-                            <tbody id="tb"><tr><td colspan="5" class="empty"><div class="sk" style="width:60%;margin:0 auto"></div></td></tr></tbody>
+                            <thead><tr><th>#</th><th>编号</th><th>日期</th><th>时间</th><th>距离</th><th>操作</th></tr></thead>
+                            <tbody id="tb"><tr><td colspan="6" class="empty"><div class="sk" style="width:60%;margin:0 auto"></div></td></tr></tbody>
                         </table>
                     </div>
                 </div>
@@ -263,33 +271,38 @@
             document.querySelectorAll('.nb').forEach(x => x.classList.remove('on'));
             b.classList.add('on');
             if (n === 'dl' && !dlOk) { dlOk = true; loadList(); }
-            if (n === 'form') { sb.disabled = false; sb.textContent = '提交数据'; qsb.disabled = false; qsb.textContent = '快速提交'; }
+            if (n === 'form') { btnReset(); qsb.disabled = false; qsb.textContent = '快速提交'; }
         }
 
-        // === 表单 ===
-        const fm = document.getElementById('fm'), ms = document.getElementById('ms'), sb = document.getElementById('sb');
+        // === 表单（提交数据：左5km档 / 右3km档=原逻辑） ===
+        const fm = document.getElementById('fm'), ms = document.getElementById('ms'), sb = document.getElementById('sb'), sb5 = document.getElementById('sb5');
         let lastSubmitId = null;
         const RV = { user_id: /^\d{3}$/, date: /^\d{8}$/, start_time: /^\d{4}$/, duration: /^\d{4}$/ };
         const RT = { user_id: '三位数字', date: '8位数字', start_time: '4位数字', duration: '4位数字' };
         function sm(t, c) { ms.textContent = t; ms.className = 'msg ' + c; if (c === 'ok') setTimeout(() => ms.textContent = '', 3000); }
+        function setBtnLabel(btn, t) { const el = btn && btn.querySelector('.b-t'); if (el) el.textContent = t; }
+        function btnReset() { sb.disabled = false; sb5.disabled = false; setBtnLabel(sb, '提交数据'); setBtnLabel(sb5, '提交数据'); }
 
         fm.addEventListener('submit', async e => {
             e.preventDefault(); ms.textContent = '';
+            const btn = (e.submitter && (e.submitter.id === 'sb' || e.submitter.id === 'sb5')) ? e.submitter : sb;
+            const is5 = btn.id === 'sb5';  // 左=5km+随机量；右(默认/回车)=原逻辑(3km随机)
             const d = {};
             for (const k of Object.keys(RV)) {
                 const v = document.getElementById(k).value.trim();
                 if (!RV[k].test(v)) { sm(RT[k], 'err'); return; }
                 d[k] = v;
             }
-            sb.disabled = true; sb.textContent = '提交中...';
+            if (is5) d.distance = (5 + Math.random() * 0.29).toFixed(2);  // 5.00~5.29 km 随机
+            btn.disabled = true; setBtnLabel(btn, '提交中...');
             let ok = false;
             try {
                 const r = await fetch('/api/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
                 const j = await r.json();
-                if (j.success) { ok = true; setCookie('uid', d.user_id, 365); document.getElementById('uidDisplay').textContent = '编号：' + d.user_id; document.getElementById('uidDisplay').style.display = ''; lastSubmitId = j.id; sm('提交成功！', 'ok'); fm.classList.add('pulse'); setTimeout(() => fm.classList.remove('pulse'), 600); fm.reset(); dlOk = false; setTimeout(() => sw('dl', document.querySelectorAll('.nb')[1]), 800); }
+                if (j.success) { ok = true; setCookie('uid', d.user_id, 365); document.getElementById('uidDisplay').textContent = '编号：' + d.user_id; document.getElementById('uidDisplay').style.display = ''; lastSubmitId = j.id; sm('提交成功！' + (is5 ? '（5km档）' : ''), 'ok'); fm.classList.add('pulse'); setTimeout(() => fm.classList.remove('pulse'), 600); fm.reset(); dlOk = false; setTimeout(() => sw('dl', document.querySelectorAll('.nb')[1]), 800); }
                 else sm(j.error || '失败', 'err');
             } catch { sm('网络错误', 'err'); }
-            finally { if (!ok) { sb.disabled = false; sb.textContent = '提交数据'; } }
+            finally { if (!ok) { btn.disabled = false; setBtnLabel(btn, '提交数据'); } }
         });
 
         // === 快速提交 ===
@@ -330,18 +343,21 @@
             tb.innerHTML = '<tr><td colspan="5" class="empty"><div class="sk" style="width:60%;margin:0 auto"></div></td></tr>';
             try {
                 const r = await fetch('/api/activities'), l = await r.json();
-                if (!l.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">暂无数据</td></tr>'; return; }
+                if (!l.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">暂无数据</td></tr>'; return; }
                 tb.innerHTML = l.map((a, i) => {
                     const hl = a.id === lastSubmitId, bg = hl ? 'background:var(--accent-sub);' : '';
-                    return `<tr style="animation:ri .7s ${i*.08}s cubic-bezier(0.34,1.56,0.64,1) both;${bg}"><td style="color:var(--t3)">${i+1}</td><td style="font-weight:600">${a.user_id}</td><td>${a.date}</td><td>${a.start_time}</td><td><button class="btn-s" onclick="dl(this,'${a.user_id}','${a.date}','${a.start_time}','${a.duration}')">下载</button></td></tr>`;
+                    const km = (a.distance != null && a.distance !== '') ? Number(a.distance).toFixed(2) + 'km' : '—';
+                    return `<tr style="animation:ri .7s ${i*.08}s cubic-bezier(0.34,1.56,0.64,1) both;${bg}"><td style="color:var(--t3)">${i+1}</td><td style="font-weight:600">${a.user_id}</td><td>${a.date}</td><td>${a.start_time}</td><td style="color:var(--t2)">${km}</td><td><button class="btn-s" onclick="dl(this,'${a.user_id}','${a.date}','${a.start_time}','${a.duration}','${a.distance ?? ''}')">下载</button></td></tr>`;
                 }).join('');
                 lastSubmitId = null;
             } catch { tb.innerHTML = '<tr><td colspan="5" class="empty">加载失败</td></tr>'; }
         }
-        async function dl(b, u, d, s, du) {
+        async function dl(b, u, d, s, du, km) {
             b.disabled = true; b.textContent = '...';
             try {
-                const r = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: u, date: d, start_time: s, duration: du }) });
+                const body = { user_id: u, date: d, start_time: s, duration: du };
+                if (km !== undefined && km !== '') body.distance = Number(km);
+                const r = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
                 if (!r.ok) throw new Error();
                 const blob = await r.blob(), url = URL.createObjectURL(blob), a = document.createElement('a');
                 a.href = url; a.download = u + '.fit'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);

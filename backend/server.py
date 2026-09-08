@@ -32,10 +32,16 @@ def init_db():
                 date TEXT NOT NULL,
                 start_time TEXT NOT NULL,
                 duration TEXT NOT NULL,
+                distance REAL,
                 visitor_ip TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # 兼容旧库：已有表补 distance 列
+        try:
+            conn.execute('ALTER TABLE activities ADD COLUMN distance REAL')
+        except sqlite3.OperationalError:
+            pass
         conn.execute('''
             CREATE TABLE IF NOT EXISTS downloads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,12 +54,12 @@ def init_db():
         conn.close()
 
 
-def insert_activity(user_id, date, start_time, duration, visitor_ip):
+def insert_activity(user_id, date, start_time, duration, visitor_ip, distance=None):
     with db_lock:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.execute(
-            "INSERT INTO activities (user_id, date, start_time, duration, visitor_ip) VALUES (?,?,?,?,?)",
-            (user_id, date, start_time, duration, visitor_ip)
+            "INSERT INTO activities (user_id, date, start_time, duration, distance, visitor_ip) VALUES (?,?,?,?,?,?)",
+            (user_id, date, start_time, duration, distance, visitor_ip)
         )
         aid = cur.lastrowid
         conn.commit()
@@ -65,12 +71,12 @@ def get_activities():
     with db_lock:
         conn = sqlite3.connect(DB_PATH)
         rows = conn.execute(
-            "SELECT id, user_id, date, start_time, duration, visitor_ip, created_at FROM activities ORDER BY created_at DESC"
+            "SELECT id, user_id, date, start_time, duration, distance, visitor_ip, created_at FROM activities ORDER BY created_at DESC"
         ).fetchall()
         conn.close()
         return [
             {'id': r[0], 'user_id': r[1], 'date': r[2], 'start_time': r[3],
-             'duration': r[4], 'visitor_ip': r[5], 'created_at': r[6]}
+             'duration': r[4], 'distance': r[5], 'visitor_ip': r[6], 'created_at': r[7]}
             for r in rows
         ]
 
@@ -174,19 +180,42 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not all([uid, date, st, dur]):
             self._json({'error': '缺少必要参数'}, 400)
             return
+        try:
+            km = self._opt_distance(d)
+        except ValueError as e:
+            self._json({'error': str(e)}, 400)
+            return
         ip = self.client_address[0]
-        aid = insert_activity(uid, date, st, dur, ip)
-        self._json({'success': True, 'id': aid})
+        aid = insert_activity(uid, date, st, dur, ip, km)
+        self._json({'success': True, 'id': aid, 'distance': km})
+
+    def _opt_distance(self, d):
+        """可选距离(公里)：空值->None；否则 0<km<=100。"""
+        raw = d.get('distance')
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            return None
+        try:
+            km = float(raw)
+        except (TypeError, ValueError):
+            raise ValueError('距离格式不正确')
+        if not (0 < km <= 100):
+            raise ValueError('距离应在0~100公里之间')
+        return km
 
     def _generate(self, d):
         uid, date, st, dur = d.get('user_id'), d.get('date'), d.get('start_time'), d.get('duration')
         if not all([uid, date, st, dur]):
             self._json({'error': '缺少必要参数'}, 400)
             return
+        try:
+            km = self._opt_distance(d)
+        except ValueError as e:
+            self._json({'error': str(e)}, 400)
+            return
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
         from tools.generate_fit import generate_fit
         out = f'data/{uid}.fit'
-        ok = generate_fit(uid, date, st, dur, out)
+        ok = generate_fit(uid, date, st, dur, out, distance=km)
         if ok and os.path.exists(out):
             ip = self.client_address[0]
             insert_download(uid, ip)
