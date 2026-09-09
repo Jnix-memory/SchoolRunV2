@@ -19,6 +19,7 @@ import os
 import sys
 import math
 import random
+import threading
 from datetime import datetime
 
 from fit_tool.fit_file_builder import FitFileBuilder
@@ -36,6 +37,25 @@ import capsule_track as ct
 # 母版文件：data/standard.fit（与 SchoolRunV1 的 1.fit 同源，含逐圈 Lap 消息）
 MASTER_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            'data', 'standard.fit')
+
+# 母版胶囊拟合缓存：母版固定时只拟合一次（按 size+mtime 失效），显著降低单次生成耗时
+_CAPSULE_LOCK = threading.Lock()
+_capsule_cache = {}
+
+
+def _get_capsule():
+    try:
+        st = os.stat(MASTER_PATH)
+        key = (st.st_size, st.st_mtime_ns)
+    except OSError:
+        key = ('missing',)
+    with _CAPSULE_LOCK:
+        cap = _capsule_cache.get(key)
+        if cap is None:
+            cap = ct.fit_capsule_from_master(MASTER_PATH)
+            _capsule_cache.clear()
+            _capsule_cache[key] = cap
+        return cap
 
 # ---- 轨迹采样参数（报告 final_constants）----
 REC_SPACING_M = 3.0        # 记录点间距（米）
@@ -92,8 +112,8 @@ def generate_fit(user_id, date, start_time, duration, output_path=None, distance
         else:
             distance_m = random.uniform(3.00, 3.29) * 1000.0
 
-        # ---- 1) 从母版拟合胶囊跑道 ----
-        capsule = ct.fit_capsule_from_master(MASTER_PATH)
+        # ---- 1) 从母版拟合胶囊跑道（缓存复用）----
+        capsule = _get_capsule()
         if capsule is None:
             print("错误: 无法从母版拟合跑道（%s 缺失或无效）" % MASTER_PATH)
             return False

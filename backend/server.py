@@ -11,14 +11,20 @@ import os
 import sys
 import sqlite3
 import threading
+import uuid
 
 PORT = 5005
 DB_PATH = 'data/activities.db'
 db_lock = threading.Lock()
+# 并发上限：4核/2G 小服务器建议 4~8；超出时请求排队而不是无限开线程
+MAX_CONCURRENCY = 8
+_sem = threading.BoundedSemaphore(MAX_CONCURRENCY)
 
 
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
+    # 提高连接等待队列(默认只有5)：突发并发时排队而不是立刻拒绝
+    request_queue_size = 64
 
 
 def init_db():
@@ -95,6 +101,13 @@ def insert_download(user_id, visitor_ip):
 class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
+        _sem.acquire()
+        try:
+            self._do_get_core()
+        finally:
+            _sem.release()
+
+    def _do_get_core(self):
         pages = {
             '/': 'frontend/form.html',
             '/index.html': 'frontend/form.html',
@@ -111,6 +124,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
+        _sem.acquire()
+        try:
+            self._do_post_core()
+        finally:
+            _sem.release()
+
+    def _do_post_core(self):
         try:
             data = self._read_body()
             if data is None:
@@ -214,7 +234,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
         from tools.generate_fit import generate_fit
-        out = f'data/{uid}.fit'
+        out = f'data/.g_{uuid.uuid4().hex}.fit'   # 唯一临时名：同 uid 并发安全
         ok = generate_fit(uid, date, st, dur, out, distance=km)
         if ok and os.path.exists(out):
             ip = self.client_address[0]
