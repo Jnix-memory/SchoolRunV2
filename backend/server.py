@@ -33,9 +33,9 @@ _processing = 0
 
 
 def _cleanup_old_temp():
-    """清理未被取走的旧 .g_ 临时文件（超过 10 分钟）。"""
+    """清理未被取走的旧 .g_ 临时文件与过期作业（超过 10 分钟）。"""
+    now = time.time()
     try:
-        now = time.time()
         for name in os.listdir('data'):
             if name.startswith('.g_') and name.endswith('.fit'):
                 p = os.path.join('data', name)
@@ -43,6 +43,11 @@ def _cleanup_old_temp():
                     os.remove(p)
     except OSError:
         pass
+    with _job_cond:
+        stale = [t for t, j in _jobs.items()
+                 if j.get('status') == 'done' and now - (j.get('done_at') or now) > 600]
+        for t in stale:
+            _jobs.pop(t, None)
 
 
 def _job_pump():
@@ -72,6 +77,7 @@ def _job_pump():
                 job['path'] = None
             finally:
                 job['status'] = 'done'
+                job['done_at'] = time.time()
         with _job_cond:
             _processing -= 1
             _job_cond.notify_all()
@@ -81,6 +87,30 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
     # 提高连接等待队列(默认只有5)：突发并发时排队而不是立刻拒绝
     request_queue_size = 64
+    block_on_close = True
+
+    def process_request(self, request, client_address):
+        """先取并发许可再开线程：线程数被钳制在 MAX_CONCURRENCY 内，
+        排队请求留在内核连接队列，不会变成一堆空等线程（省内存）。"""
+        _sem.acquire()
+        try:
+            t = threading.Thread(target=self._serve_guarded,
+                                 args=(request, client_address))
+            t.daemon = True
+            t.start()
+        except Exception:
+            _sem.release()
+            self.shutdown_request(request)
+
+    def _serve_guarded(self, request, client_address):
+        try:
+            self.finish_request(request, client_address)
+            self.shutdown_request(request)
+        except Exception:
+            self.handle_error(request, client_address)
+            self.shutdown_request(request)
+        finally:
+            _sem.release()
 
 
 def init_db():
@@ -157,11 +187,7 @@ def insert_download(user_id, visitor_ip):
 class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
-        _sem.acquire()
-        try:
-            self._do_get_core()
-        finally:
-            _sem.release()
+        self._do_get_core()
 
     def _do_get_core(self):
         if self.path.startswith('/api/jobs'):
@@ -183,11 +209,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
-        _sem.acquire()
-        try:
-            self._do_post_core()
-        finally:
-            _sem.release()
+        self._do_post_core()
 
     def _do_post_core(self):
         try:
