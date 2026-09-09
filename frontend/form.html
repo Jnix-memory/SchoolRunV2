@@ -146,6 +146,14 @@
         .btn-s:hover { transform: scale(1.06); }
         .btn-s:disabled { opacity: 0.35; transform: none; }
 
+        /* ===== 下载排队进度条 ===== */
+        .dlwrap { margin-top: 14px; display: none; }
+        .dlbar { height: 8px; border-radius: 5px; background: var(--table-head); overflow: hidden; }
+        .dlbar > i { display: block; height: 100%; width: 12%; border-radius: 5px; background: var(--btn); transition: width .6s ease; }
+        .dlwrap.run .dlbar > i { animation: dlrun 1.2s ease-in-out infinite; }
+        @keyframes dlrun { 0% { width: 20%; } 50% { width: 78%; } 100% { width: 20%; } }
+        .dlt { font-size: 12px; color: var(--t2); margin-top: 6px; text-align: center; }
+
         /* ===== 消息 ===== */
         .msg { text-align: center; font-size: 14px; font-weight: 500; min-height: 20px; margin-top: 14px; }
         .msg.ok { color: var(--ok); } .msg.err { color: var(--err); }
@@ -217,6 +225,11 @@
                             <thead><tr><th>#</th><th>编号</th><th>日期</th><th>时间</th><th>距离</th><th>操作</th></tr></thead>
                             <tbody id="tb"><tr><td colspan="6" class="empty"><div class="sk" style="width:60%;margin:0 auto"></div></td></tr></tbody>
                         </table>
+                        <!-- 下载排队进度条 -->
+                        <div class="dlwrap" id="dlwrap">
+                            <div class="dlbar"><i id="dlfill"></i></div>
+                            <div class="dlt" id="dltxt"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -366,17 +379,47 @@
                 lastSubmitId = null;
             } catch { tb.innerHTML = '<tr><td colspan="5" class="empty">加载失败</td></tr>'; }
         }
+        // === 下载（进入生成队列 + 进度条：排队人数/正在生成） ===
+        let dlJob = null, dlPoll = null;
+        const dlwrap = document.getElementById('dlwrap'), dlfill = document.getElementById('dlfill'), dltxt = document.getElementById('dltxt');
+        function setDl(p, w) {
+            if (p === 'waiting') { dlwrap.classList.remove('run'); dlfill.style.width = '12%'; dltxt.textContent = `排队中… 前面还有 ${w ?? 0} 人`; }
+            else if (p === 'running') { dlwrap.classList.add('run'); dltxt.textContent = '正在生成中…'; }
+            else if (p === 'error') { dlwrap.classList.remove('run'); dltxt.textContent = w || '生成失败，请重试'; }
+            else { dlwrap.classList.remove('run'); dltxt.textContent = ''; }
+        }
         async function dl(b, u, d, s, du, km) {
-            b.disabled = true; b.textContent = '...';
+            if (dlJob) { sm('已有任务在排队/生成中，请稍候', 'err'); return; }
+            b.disabled = true; b.textContent = '排队...';
+            dlwrap.style.display = 'block';
+            setDl('waiting', 0);
             try {
                 const body = { user_id: u, date: d, start_time: s, duration: du };
                 if (km !== undefined && km !== '') body.distance = Number(km);
-                const r = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-                if (!r.ok) throw new Error();
+                const r0 = await fetch('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                const j0 = await r0.json();
+                if (!j0.success) throw new Error(j0.error || '入队失败');
+                dlJob = j0.ticket;
+                setDl('waiting', j0.ahead);
+                // 轮询排队位置/状态
+                dlPoll = setInterval(async () => {
+                    try {
+                        const q = await (await fetch('/api/jobs/status?t=' + dlJob)).json();
+                        if (q.phase === 'waiting') setDl('waiting', q.ahead);
+                        else if (q.phase === 'running') setDl('running');
+                        else if (q.phase === 'done' && !q.ok) { setDl('error'); }
+                    } catch (e) {}
+                }, 800);
+                // 阻塞等待生成完成并下载
+                const r = await fetch('/api/jobs/result?t=' + dlJob);
+                clearInterval(dlPoll); dlPoll = null;
+                if (!r.ok) { const ej = await r.json().catch(() => ({})); throw new Error(ej.error || '下载失败'); }
+                setDl('done');
                 const blob = await r.blob(), url = URL.createObjectURL(blob), a = document.createElement('a');
                 a.href = url; a.download = u + '.fit'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-            } catch { alert('下载失败'); }
-            finally { b.disabled = false; b.textContent = '下载'; }
+                setTimeout(() => { dlwrap.style.display = 'none'; }, 800);
+            } catch (e) { setDl('error', (e && e.message) || '下载失败'); }
+            finally { dlJob = null; if (dlPoll) { clearInterval(dlPoll); dlPoll = null; } b.disabled = false; b.textContent = '下载'; }
         }
 
         // === 光源随机漫步 ===
