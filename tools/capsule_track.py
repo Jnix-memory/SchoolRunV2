@@ -477,8 +477,9 @@ def build_pace_curve(distance_m, seg_m=1000.0, amp=0.05, smooth_m=200.0,
         if len(edges) < 4:                  # 至少三段（防路径过短导致段数不足）
             edges = [0.0, distance_m / 3.0, distance_m * 2.0 / 3.0, distance_m]
         n_seg = len(edges) - 1
-        # 每段一个随机权重，降幅按权重分配（不均匀），累计总降幅=step_drop
-        weights = [random.uniform(0.5, 1.6) for _ in range(n_seg)]
+        # 每段一个随机权重（越靠前权重越大 → 降速前倾，中段即掉到约8'/km），
+        # 降幅按权重分配（不均匀），累计总降幅=step_drop
+        weights = [random.uniform(0.5, 1.6) * (n_seg - i) for i in range(n_seg)]
         sw = sum(weights[1:]) or 1.0
         drops = [0.0] * n_seg
         cum = 0.0
