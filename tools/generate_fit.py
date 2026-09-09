@@ -47,9 +47,8 @@ TRACK_SHIFT_EAST_M = 10.0  # 生成轨迹整体往正东平移(米)，修正与�
 TREND_DECAY = 0.2          # 线性档(5km+): 整体递减：末端速度 = 首端 × 80%
 PER_KM_AMP = 0.05          # 线性档每公里随机幅度 ±5%
 PACE_SMOOTH_M = 200.0      # 线性档配速平滑相关长度
-# 3km 档（<4km）：阶梯式下降 —— 总降幅约45%、降速前倾（中段可到8'/km）、台阶不均匀
-STEP_DROP_3K = 0.45        # 首段100% → 末段约55%（整体变化率约45%）
-STEP_IN_AMP_3K = 0.05      # 台阶内逐点小抖动 ±5%（不均匀但不抹平台阶）
+# 3km 档（<4km）："快跑段 + 中段慢走(3~4km/h)"强变化剖面（capsule_track 的 walk 模式）
+STEP_DROP_3K = 0.45        # 兜底/速度上限估算用的降幅参考
 
 # ---- 慢跑动力学人设（报告 FEAT-07 / final_constants）----
 AVG_SPM = 158.0            # 平均步频（步/分）
@@ -122,13 +121,11 @@ def generate_fit(user_id, date, start_time, duration, output_path=None, distance
         dur_ms = int(total_duration * 1000)
 
         # ---- 3) 速度曲线：时间-距离映射（总时长精确保持）----
-        # 3km 档(<4km)：阶梯式下降，总降幅约35%、台阶不均匀；5km及以上线性平缓递减
+        # 3km 档(<4km)：快跑段 + 中段慢走(3~4km/h)，变化幅度很大；5km及以上线性平缓递减
         if distance_m < 4000.0:
             pace_dg, pace_qg = ct.build_pace_curve(
-                distance_m, amp=STEP_IN_AMP_3K, smooth_m=0.0,
-                trend_decay=0.0, duration_s=total_duration,
-                trend_mode='step', step_drop=STEP_DROP_3K)
-            trend_decay_ref = STEP_DROP_3K      # 首端理论速度按降幅估算
+                distance_m, trend_mode='walk', duration_s=total_duration)
+            trend_decay_ref = 0.45              # 仅用于瞬时速度上限估算
         else:
             pace_dg, pace_qg = ct.build_pace_curve(
                 distance_m, amp=PER_KM_AMP, smooth_m=PACE_SMOOTH_M,

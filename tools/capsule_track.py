@@ -443,26 +443,65 @@ def build_pace_curve(distance_m, seg_m=1000.0, amp=0.05, smooth_m=200.0,
 
     trend_mode='linear'（默认，5km 及以上档）：
       整体速度随时间线性递减，末端速度 = 首端 × (1-trend_decay)；
-      每 seg_m 段叠加 ±amp 独立随机，并按 smooth_m 平滑；
-      最后归一化使总耗时比例恒为 1（总时长精确保持）。
+      每 seg_m 段叠加 ±amp 独立随机，并按 smooth_m 平滑。
 
-    trend_mode='step'（3km 档"阶梯式下降"）：
-      把全程切成若干个"长度与降幅都不均匀"的平速段（阶梯）：
-      段与段之间速度逐级下降、全程总降幅约 step_drop
-      （step_drop=0.35 → 首段 100%、末段约 65%，整体变化率约 35%）；
-      段内叠加 ±amp 的逐点小抖动制造"不均匀"，但不做跨段平滑，
-      因此速度曲线呈明显的台阶状而非平缓斜坡。
+    trend_mode='step'：阶梯式下降——切成若干"段长与降幅都不均匀"的平速台阶，
+      全程总降幅约 step_drop，台阶内 ±amp 抖动、不做跨段平滑。
 
-    返回 (d_grid, q_grid)：q 为距离 d 处已消耗的总时间比例(0..1)。
-    注：两种模式下总时长都恒等于输入时长；平均速度>9km/h 时首端将
-    超过 10km/h（"总时长优先"选项下允许突破 10km/h 上限）。"""
+    trend_mode='walk'（3km 档"中段慢走"）：
+      全程=快跑段 + 中段 1 段慢走(3~4km/h)。按 距离/总时长 反推可行的
+      快段速度 F 与慢走长度 Lw（D = F·(T-tw) + W·tw），快段分前/后两档
+      （前段约 F×1.08、慢走结束后约 F×0.93，整体略越跑越慢）并叠加缓慢
+      速度波动；速度剖面绝对落在 3~4(慢走) 与 ~F(快跑) 区间，变化幅度很大。
+
+    三种模式最后都归一化，使总耗时比例恒为 1（总时长精确保持）。
+    返回 (d_grid, q_grid)：q 为距离 d 处已消耗的总时间比例(0..1)。"""
     if distance_m <= 0:
         return [0.0], [0.0]
     n = max(2, int(math.ceil(distance_m / step_m)))
     T = float(duration_s) if duration_s else None
     is_step = (trend_mode == 'step') and step_drop and step_drop > 0
+    walk_mode = (trend_mode == 'walk') and T and T > 0
 
-    if is_step:
+    if walk_mode:
+        # ========== 中段慢走模式（快跑段 + 中段一次 3~4km/h 慢走） ==========
+        D = distance_m
+        avg_kmh = D / T * 3.6
+        cfg = None                      # (share, W_kmh, Lw_m, F_kmh)
+        for _ in range(80):
+            share = random.uniform(0.10, 0.20)
+            W_kmh = random.uniform(3.0, 4.0)
+            Lw = D * share
+            tw = Lw / (W_kmh / 3.6)     # 慢走耗时(s)
+            if T - tw <= 0.0:
+                continue
+            F_kmh = (D - Lw) / (T - tw) * 3.6   # 快段速度(需补足总时长)
+            if F_kmh >= avg_kmh * 1.08 and F_kmh <= 15.5:
+                cfg = (share, W_kmh, Lw, F_kmh)
+                break
+        wave_len = random.uniform(500.0, 900.0)
+        d_w0, Lw, W_kmh, F0, F1 = D, 0.0, 4.0, 0.0, 0.0
+        if cfg is None:
+            # 兜底（时长过短等）：无慢走，仅做大幅递减 + 波动
+            F0 = avg_kmh / (1.0 - 0.45 / 2.0)
+            F1 = F0 * 0.55
+        else:
+            _share, W_kmh, Lw, F_kmh = cfg
+            d_w0 = D * random.uniform(0.30, 0.50)   # 慢走位于中段
+        pace = []
+        for i in range(n):
+            d = i * step_m
+            if cfg is not None and d_w0 <= d <= d_w0 + Lw:
+                v = W_kmh * (1.0 + 0.05 * math.sin(2.0 * math.pi * d / wave_len + 1.3))
+            else:
+                if cfg is None:
+                    v = F0 - (F0 - F1) * (d / D)
+                else:
+                    pre = d < d_w0
+                    base = F_kmh * (1.08 if pre else 0.93)
+                    v = base * (1.0 + 0.05 * math.sin(2.0 * math.pi * d / wave_len))
+            pace.append(3.6 / max(v, 0.4))
+    elif is_step:
         # ========== 阶梯式下降（不均匀分段 + 不均匀降幅） ==========
         edges = [0.0]
         while distance_m - edges[-1] > 550.0:
