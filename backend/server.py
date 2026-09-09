@@ -201,6 +201,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         }
         if self.path in pages:
             self._file(pages[self.path], 'text/html')
+        elif self.path == '/Keep.apk':
+            # 前端“下载 Keep 安卓版”按钮指向的安装包（文件放网站根目录）
+            self._file('Keep.apk', 'application/vnd.android.package-archive')
         elif self.path == '/api/activities':
             self._json(get_activities())
         elif self.path == '/api/announcement':
@@ -259,11 +262,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def _file(self, path, ct):
         try:
             with open(path, 'rb') as f:
-                data = f.read()
-            self.send_response(200)
-            self.send_header('Content-Type', f'{ct}; charset=utf-8')
-            self.end_headers()
-            self.wfile.write(data)
+                self.send_response(200)
+                self.send_header('Content-Type', f'{ct}; charset=utf-8')
+                self.send_header('Content-Length', str(os.path.getsize(path)))
+                self.end_headers()
+                while True:                # 流式发送：大文件(APK)不全量读入内存
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
         except FileNotFoundError:
             self.send_error(404)
 
