@@ -41,6 +41,7 @@ MASTER_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 REC_SPACING_M = 3.0        # 记录点间距（米）
 JITTER_RATIO = 0.25        # 横向抖动触发率
 JITTER_AMP_M = 10.0        # 横向波动峰值 ≤10m（低频平滑 + 峰值归一）
+TRACK_SHIFT_EAST_M = 10.0  # 生成轨迹整体往正东平移(米)，修正与实地跑道的定位偏差
 
 # ---- 速度模型 ----
 TREND_DECAY = 0.2          # 线性档(5km+): 整体递减：末端速度 = 首端 × 80%
@@ -110,6 +111,11 @@ def generate_fit(user_id, date, start_time, duration, output_path=None, distance
             print("错误: 采样点数不足")
             return False
         geo = ct.to_geo_points(capsule, out_m)
+        # 轨迹整体往正东平移约 10m（在经纬度边界换算，仅经度变化，形状/长度/速度不变）
+        if TRACK_SHIFT_EAST_M:
+            cos_lat = math.cos(math.radians(capsule['center_lat']))
+            dlon = TRACK_SHIFT_EAST_M / (111320.0 * cos_lat)
+            geo = [(lat, lon + dlon) for (lat, lon) in geo]
 
         # ---- 开始时间（本地时间原样写入，App 按 FIT 纪元回显墙钟一致）----
         start_ms = int(datetime(year, month, day, hour, minute, 0).timestamp() * 1000)
