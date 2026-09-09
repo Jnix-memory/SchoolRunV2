@@ -121,11 +121,12 @@ def generate_fit(user_id, date, start_time, duration, output_path=None, distance
         dur_ms = int(total_duration * 1000)
 
         # ---- 3) 速度曲线：时间-距离映射（总时长精确保持）----
-        # 3km 档(<4km)：快跑段 + 中段慢走(3~4km/h)，变化幅度很大；5km及以上线性平缓递减
+        # 3km 档(<4km)：km1快~km2略快~km3大掉速(参考5'45/5'33/9'33)+偶发慢走，强离散；
+        # 5km及以上线性平缓递减
         if distance_m < 4000.0:
             pace_dg, pace_qg = ct.build_pace_curve(
-                distance_m, trend_mode='walk', duration_s=total_duration)
-            trend_decay_ref = 0.45              # 仅用于瞬时速度上限估算
+                distance_m, trend_mode='disp3', duration_s=total_duration)
+            trend_decay_ref = 0.5               # 仅用于瞬时速度上限估算
         else:
             pace_dg, pace_qg = ct.build_pace_curve(
                 distance_m, amp=PER_KM_AMP, smooth_m=PACE_SMOOTH_M,
