@@ -437,55 +437,101 @@ def to_geo_points(capsule, out_pts):
 # ---- 速度波动：整体递减趋势 + 每公里随机，总时长保持 ----
 
 def build_pace_curve(distance_m, seg_m=1000.0, amp=0.05, smooth_m=200.0,
-                     step_m=5.0, trend_decay=0.2, duration_s=None):
+                     step_m=5.0, trend_decay=0.2, duration_s=None,
+                     trend_mode='linear', step_drop=None):
     """生成"时间-距离"累积曲线。
-    速度模型：整体随时间线性递减，末端速度 = 首端 × (1-trend_decay)（默认 80%）；
-    每 seg_m 段再叠加 ±amp 的独立随机波动；段间按 smooth_m 平滑。
-    最后归一化使全程耗时比例恰为 1（总时长恒等于输入时长，与绝对速度无关）。
+
+    trend_mode='linear'（默认，5km 及以上档）：
+      整体速度随时间线性递减，末端速度 = 首端 × (1-trend_decay)；
+      每 seg_m 段叠加 ±amp 独立随机，并按 smooth_m 平滑；
+      最后归一化使总耗时比例恒为 1（总时长精确保持）。
+
+    trend_mode='step'（3km 档"阶梯式下降"）：
+      把全程切成若干个"长度与降幅都不均匀"的平速段（阶梯）：
+      段与段之间速度逐级下降、全程总降幅约 step_drop
+      （step_drop=0.35 → 首段 100%、末段约 65%，整体变化率约 35%）；
+      段内叠加 ±amp 的逐点小抖动制造"不均匀"，但不做跨段平滑，
+      因此速度曲线呈明显的台阶状而非平缓斜坡。
+
     返回 (d_grid, q_grid)：q 为距离 d 处已消耗的总时间比例(0..1)。
-    注：trend 的绝对速度由 距离/时长 反推；平均速度>9km/h 时首端将超过 10km/h
-    （"总时长优先"选项下允许突破 10km/h 上限）。"""
+    注：两种模式下总时长都恒等于输入时长；平均速度>9km/h 时首端将
+    超过 10km/h（"总时长优先"选项下允许突破 10km/h 上限）。"""
     if distance_m <= 0:
         return [0.0], [0.0]
-    # 趋势解析：s(t)=S*(1-trend_decay*t/T)，平均=S*(1-trend_decay/2)=D/T
-    T = float(duration_s) if duration_s else None
-    S = 0.0
-    if T and T > 0:
-        S = distance_m / T / (1.0 - trend_decay / 2.0)  # m/s（首端速度）
-    # 每段独立随机速度系数 f ∈ [1-amp, 1+amp]
-    factors = []
-    pos = 0.0
-    while pos < distance_m - 1e-9:
-        factors.append(random.uniform(1.0 - amp, 1.0 + amp))
-        pos += seg_m
-    # 细网格上：pace(单位距离耗时比例) = 随机系数 * 趋势项(1/v_rel)
     n = max(2, int(math.ceil(distance_m / step_m)))
-    pace = []
-    for i in range(n):
-        d = i * step_m
-        k = min(int(d // seg_m), len(factors) - 1)
-        mt = 1.0
-        if S > 0 and trend_decay > 0 and T and T > 0:
-            # 反解 t0(d)：d = S*t - S*trend_decay*t^2/(2T)
-            A = trend_decay / (2.0 * T)
-            disc = S * S - 4.0 * S * A * d
-            if disc > 0:
-                t0 = (S - math.sqrt(disc)) / (2.0 * S * A)
-            else:
-                t0 = T
-            v_rel = 1.0 - trend_decay * t0 / T  # 相对首端速度(1 -> 0.8)
-            mt = 1.0 / v_rel if v_rel > 1e-9 else 1.25
-        pace.append(factors[k] * mt)
-    # 滑动平均平滑（对应 smooth_m 距离）
-    if smooth_m > step_m and len(pace) > 3:
-        rad = max(1, int(round(smooth_m / step_m / 2.0)))
-        sm = []
+    T = float(duration_s) if duration_s else None
+    is_step = (trend_mode == 'step') and step_drop and step_drop > 0
+
+    if is_step:
+        # ========== 阶梯式下降（不均匀分段 + 不均匀降幅） ==========
+        edges = [0.0]
+        while distance_m - edges[-1] > 550.0:
+            rem = distance_m - edges[-1]
+            lo = max(250.0, rem * 0.3)
+            hi = max(lo + 1.0, min(rem - 250.0, 900.0))
+            edges.append(edges[-1] + random.uniform(lo, hi))
+        if distance_m - edges[-1] >= 150.0:
+            edges.append(distance_m)
+        else:
+            edges[-1] = distance_m          # 收尾并入上一段，避免出现过短台阶
+        if len(edges) < 4:                  # 至少三段（防路径过短导致段数不足）
+            edges = [0.0, distance_m / 3.0, distance_m * 2.0 / 3.0, distance_m]
+        n_seg = len(edges) - 1
+        # 每段一个随机权重，降幅按权重分配（不均匀），累计总降幅=step_drop
+        weights = [random.uniform(0.5, 1.6) for _ in range(n_seg)]
+        sw = sum(weights[1:]) or 1.0
+        drops = [0.0] * n_seg
+        cum = 0.0
+        for i in range(1, n_seg):
+            cum = min(cum + step_drop * weights[i] / sw, step_drop)
+            drops[i] = cum
+        pace = []
         for i in range(n):
-            lo = max(0, i - rad)
-            hi = min(n, i + rad + 1)
-            sm.append(sum(pace[lo:hi]) / (hi - lo))
-        pace = sm
-    # 累积耗时并归一化
+            d = i * step_m
+            idx = 0
+            for j in range(1, n_seg + 1):
+                if d < edges[j]:
+                    break
+                idx = j
+            level = max(0.35, 1.0 - drops[idx])
+            pace.append(1.0 / level)
+        if amp > 0:                         # 段内小抖动：不均匀但不抹平台阶
+            for i in range(n):
+                pace[i] *= random.uniform(1.0 - amp, 1.0 + amp)
+    else:
+        # ========== 线性递减 + 每公里随机（原逻辑保持不变） ==========
+        S = 0.0
+        if T and T > 0:
+            S = distance_m / T / (1.0 - trend_decay / 2.0)  # m/s（首端速度）
+        factors = []
+        pos = 0.0
+        while pos < distance_m - 1e-9:
+            factors.append(random.uniform(1.0 - amp, 1.0 + amp))
+            pos += seg_m
+        pace = []
+        for i in range(n):
+            d = i * step_m
+            k = min(int(d // seg_m), len(factors) - 1)
+            mt = 1.0
+            if S > 0 and trend_decay > 0 and T and T > 0:
+                A = trend_decay / (2.0 * T)
+                disc = S * S - 4.0 * S * A * d
+                if disc > 0:
+                    t0 = (S - math.sqrt(disc)) / (2.0 * S * A)
+                else:
+                    t0 = T
+                v_rel = 1.0 - trend_decay * t0 / T
+                mt = 1.0 / v_rel if v_rel > 1e-9 else 1.25
+            pace.append(factors[k] * mt)
+        if smooth_m > step_m and len(pace) > 3:
+            rad = max(1, int(round(smooth_m / step_m / 2.0)))
+            sm = []
+            for i in range(n):
+                lo = max(0, i - rad)
+                hi = min(n, i + rad + 1)
+                sm.append(sum(pace[lo:hi]) / (hi - lo))
+            pace = sm
+    # ========== 累积耗时并归一化（总时长恒等） ==========
     cum = [0.0]
     for i in range(1, n):
         cum.append(cum[-1] + (pace[i - 1] + pace[i]) / 2.0 * step_m)
