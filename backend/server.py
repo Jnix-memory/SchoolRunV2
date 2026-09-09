@@ -201,9 +201,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         }
         if self.path in pages:
             self._file(pages[self.path], 'text/html')
-        elif self.path == '/Keep.apk':
-            # 前端“下载 Keep 安卓版”按钮指向的安装包（文件放网站根目录）
-            self._file('Keep.apk', 'application/vnd.android.package-archive')
         elif self.path == '/api/activities':
             self._json(get_activities())
         elif self.path == '/api/announcement':
