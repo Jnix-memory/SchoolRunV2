@@ -134,17 +134,57 @@ def generate_fit(user_id, date, start_time, duration, output_path=None, distance
             trend_decay_ref = TREND_DECAY
         q_at = lambda d: ct.pace_time_fraction(pace_dg, pace_qg, d)
 
-        # 逐点瞬时速度(m/s)：由距离-时间曲线中心差分（±3 点窗口）推得，带物理上限
-        head_v = distance_m / total_duration / (1.0 - trend_decay_ref / 2.0)  # 首端理论速度
-        v_cap = head_v * 1.15
+        # ---- 记录点：按"整秒网格"采样（与真实设备一致：每秒一点、点距∝速度）----
+        # 关键：FIT 落盘时间戳只有整秒精度；若按等距3m写点，亚秒间隔取整成秒后
+        # "相邻点距离/时间"只剩 10.8/5.4/3.6 几档量化速度，Keep 按点间速度着色会失效。
+        # 改为每秒一点：第 k 秒处里程 d_k 由 q(d)=k/总时长 反解（5m网格二分+插值），
+        # 于是相邻点时间差恒为 1s、距离差=该秒真实跑动距离 → 段速=逐点 speed 完全一致，
+        # 红/绿/蓝能按速度真正分开（参考母版真实设备即 1Hz 采样）。
+        def _dist_at_frac(frac):
+            qg = pace_qg
+            if frac <= qg[0]:
+                return pace_dg[0]
+            if frac >= qg[-1]:
+                return pace_dg[-1]
+            lo, hi = 0, len(pace_dg) - 1
+            while lo < hi - 1:
+                mid = (lo + hi) // 2
+                if qg[mid] <= frac:
+                    lo = mid
+                else:
+                    hi = mid
+            f = (frac - qg[lo]) / (qg[hi] - qg[lo] + 1e-12)
+            return pace_dg[lo] + (pace_dg[hi] - pace_dg[lo]) * f
+
+        n_sec = total_duration                     # 每秒 1 个记录点
         spd = []
-        for i in range(n_pts):
-            im = max(0, i - 3)
-            ip = min(n_pts - 1, i + 3)
-            dd = out_dist[ip] - out_dist[im]
-            dq = max(q_at(out_dist[ip]) - q_at(out_dist[im]), 1e-9)
-            spd.append(min(dd / dq / total_duration, v_cap))
-        avg_v = sum(spd) / n_pts
+        rec_d = []
+        rec_geo = []
+        prev_d = None
+        for k in range(n_sec + 1):
+            if k < n_sec:
+                d_k = _dist_at_frac(k / float(n_sec))
+            else:
+                d_k = distance_m
+            if prev_d is not None and d_k < prev_d - 1e-6:
+                d_k = prev_d
+            if prev_d is None:
+                v_k = 0.0
+            else:
+                v_k = d_k - prev_d
+            v_k = max(v_k, 0.2)
+            # 在 3m 均匀几何网格上按里程线性插值经纬度
+            idx = min(int(d_k / REC_SPACING_M) if REC_SPACING_M > 0 else 0, n_pts - 2)
+            span = max(out_dist[idx + 1] - out_dist[idx], 1e-9)
+            fr = min(max((d_k - out_dist[idx]) / span, 0.0), 1.0)
+            rec_geo.append((geo[idx][0] + (geo[idx + 1][0] - geo[idx][0]) * fr,
+                            geo[idx][1] + (geo[idx + 1][1] - geo[idx][1]) * fr))
+            rec_d.append(d_k)
+            spd.append(v_k)
+            prev_d = d_k
+        if len(spd) > 1:
+            spd[0] = spd[1]
+        avg_v = sum(spd) / max(len(spd), 1)
 
         # ---- 4) 组装 FIT 消息 ----
         builder = FitFileBuilder()
@@ -156,22 +196,21 @@ def generate_fit(user_id, date, start_time, duration, output_path=None, distance
         file_id.time_created = start_ms
         builder.add(file_id)
 
-        # 记录点：时间按速度曲线分配（慢处密、快处疏），时间严格单调
-        for i in range(n_pts):
+        # 记录点：整秒时间戳；同时写 speed 与 enhanced_speed（m/s）
+        for k in range(n_sec + 1):
             record = RecordMessage()
-            t_ms = start_ms + int(round(dur_ms * q_at(out_dist[i])))
-            record.timestamp = t_ms
-            record.position_lat = geo[i][0]
-            record.position_long = geo[i][1]
-            record.distance = out_dist[i]
-            # 逐点运动学：速度快时步频/功率略升、触地略降
-            v = spd[i]
-            k = v / avg_v if avg_v > 0 else 1.0
+            record.timestamp = start_ms + k * 1000
+            record.position_lat = rec_geo[k][0]
+            record.position_long = rec_geo[k][1]
+            record.distance = rec_d[k]
+            v = spd[k]
+            k_rel = v / avg_v if avg_v > 0 else 1.0
+            record.speed = v
             record.enhanced_speed = v
-            cad_half = (AVG_SPM + 10.0 * (k - 1.0) + random.uniform(-2.0, 2.0)) / 2.0
+            cad_half = (AVG_SPM + 10.0 * (k_rel - 1.0) + random.uniform(-2.0, 2.0)) / 2.0
             cad_half = _clamp(cad_half, 72.0, 86.0)
             record.cadence = int(round(cad_half))          # 半值存储（×2 显示）
-            pwr = AVG_POWER_W * ((0.8 + 0.2 * _clamp(k, 0.6, 1.5)) ** 3) \
+            pwr = AVG_POWER_W * ((0.8 + 0.2 * _clamp(k_rel, 0.6, 1.5)) ** 3) \
                 * (1.0 + 0.08 * random.uniform(-1.0, 1.0))
             record.power = int(round(_clamp(pwr, 100.0, 300.0)))
             st = 39000.0 / (cad_half * 2.0) + random.uniform(-18.0, 18.0)
@@ -241,9 +280,9 @@ def generate_fit(user_id, date, start_time, duration, output_path=None, distance
         # 最终折线实测总长（出口标定锚点）
         total_meas = sum(math.hypot(out_m[i][0] - out_m[i - 1][0],
                                     out_m[i][1] - out_m[i - 1][1]) for i in range(1, n_pts))
-        print("成功生成: %s  目标=%.2fm 实测折线=%.2fm 误差=%.2f%% 点数=%d 圈数=%d" % (
+        print("成功生成: %s  目标=%.2fm 实测折线=%.2fm 误差=%.2f%% 记录点=%d(1Hz) 圈数=%d" % (
             output_path, distance_m, total_meas,
-            (total_meas - distance_m) / distance_m * 100.0, n_pts, len(lap_dists)))
+            (total_meas - distance_m) / distance_m * 100.0, n_sec + 1, len(lap_dists)))
         return True
 
     except Exception as e:
