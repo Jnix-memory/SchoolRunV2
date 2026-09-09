@@ -260,17 +260,56 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps(obj, ensure_ascii=False).encode())
 
     def _file(self, path, ct):
+        """静态文件：支持 Range(断点续传/多线程) + 流式发送。"""
         try:
+            size = os.path.getsize(path)
+            start, end = 0, size - 1
+            partial = False
+            rng = self.headers.get('Range', '')
+            if rng.startswith('bytes='):
+                spec = rng.split('=', 1)[1].split(',')[0].strip()
+                try:
+                    if '-' in spec:
+                        a, b = spec.split('-', 1)
+                        if a == '':
+                            n = int(b)
+                            if n > 0:
+                                start = max(size - n, 0)
+                        else:
+                            start = int(a)
+                            if b:
+                                end = int(b)
+                    else:
+                        start = int(spec)
+                except ValueError:
+                    start, end = 0, size - 1
+                if start >= size:                     # 超出范围
+                    self.send_response(416)
+                    self.send_header('Content-Range', 'bytes */%d' % size)
+                    self.end_headers()
+                    return
+                end = min(end, size - 1)
+                partial = (start > 0 or end < size - 1)
             with open(path, 'rb') as f:
-                self.send_response(200)
+                if partial:
+                    f.seek(start)
+                    self.send_response(206)
+                    self.send_header('Content-Range',
+                                     'bytes %d-%d/%d' % (start, end, size))
+                else:
+                    self.send_response(200)
                 self.send_header('Content-Type', f'{ct}; charset=utf-8')
-                self.send_header('Content-Length', str(os.path.getsize(path)))
+                self.send_header('Accept-Ranges', 'bytes')
+                length = end - start + 1
+                self.send_header('Content-Length', str(length))
                 self.end_headers()
-                while True:                # 流式发送：大文件(APK)不全量读入内存
-                    chunk = f.read(65536)
+                remain = length
+                while remain > 0:                     # 流式发送
+                    chunk = f.read(min(65536, remain))
                     if not chunk:
                         break
                     self.wfile.write(chunk)
+                    remain -= len(chunk)
         except FileNotFoundError:
             self.send_error(404)
 
